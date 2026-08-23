@@ -224,13 +224,21 @@ void doQs(bool fireOnly)
 {
 	keybd_event(VK_OEM_5, 0x45, KEYEVENTF_EXTENDEDKEY | 0, 0);
 	keybd_event(VK_OEM_5, 0x45, KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYUP, 0);
-	if (fireOnly)
+	if (fireOnly) {
+		Sleep(randomInt(10, 30));
 		return;
-	keybd_event(0x51, 0x45, KEYEVENTF_EXTENDEDKEY | 0, 0);
-	keybd_event(0x51, 0x45, KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYUP, 0);
-	Sleep(sleepf);
+	}
+	keybd_event(0x33, 0x45, KEYEVENTF_EXTENDEDKEY | 0, 0);
+	keybd_event(0x33, 0x45, KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYUP, 0);
+	Sleep(randomInt(70, sleepf));
 	keybd_event(0x31, 0x45, KEYEVENTF_EXTENDEDKEY | 0, 0);
 	keybd_event(0x31, 0x45, KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYUP, 0);
+}
+
+int randomInt(int min, int max) {
+	static std::random_device rd;
+	static std::mt19937 gen(rd());
+	return std::uniform_int_distribution<int>(min, max)(gen);
 }
 
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
@@ -339,16 +347,21 @@ INT_PTR CALLBACK EditTime(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 		return (INT_PTR)TRUE;
 
 	case WM_COMMAND:
+	{
 		switch (LOWORD(wParam))
 		{
 		case IDC_BUTTON1:
-			char bu[5];
-			GetDlgItemTextW(hDlg, IDC_TIMEVAR, (LPWSTR)bu, 4);
-			sleepf = myAtoi(bu);
+		{
+			BOOL success;
+			int value = GetDlgItemInt(hDlg, IDC_TIMEVAR, &success, TRUE);
+
+			if (success) {
+				sleepf = value;
+			}
 			wchar_t buffer[5];
 			wsprintf(buffer, L"%d", sleepf);
-			SetDlgItemTextW(hDlg, IDC_TIMELABL, buffer);
 			MessageBox(NULL, buffer, buffer, MB_OK);
+		}
 		case IDOK:
 		case IDCANCEL:
 			EndDialog(hDlg, LOWORD(wParam));
@@ -360,21 +373,6 @@ INT_PTR CALLBACK EditTime(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 		}
 		break;
 	}
-	return (INT_PTR)FALSE;
-}
-
-
-int myAtoi(char* str)
-{
-	int res = 0;
-	for (int i = 0; i < 5; ++i) {
-		if (str[i] == '\0') {
-			continue;
-		}
-		else {
-			res = res * 10 + str[i] - '0';
-		}
 	}
-
-	return res;
+	return (INT_PTR)FALSE;
 }
