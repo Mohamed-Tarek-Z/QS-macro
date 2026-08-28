@@ -1,5 +1,41 @@
 #include "FoxHunting.h"
 
+namespace Input
+{
+	constexpr SHORT KEY_DOWN = 0x8000;
+
+	bool isDown(int key)
+	{
+		return (GetAsyncKeyState(key) & KEY_DOWN) != 0;
+	}
+
+	void keyDown(BYTE key)
+	{
+		INPUT input{};
+		input.type = INPUT_KEYBOARD;
+		input.ki.wVk = key;
+		input.ki.dwFlags = KEYEVENTF_EXTENDEDKEY;
+
+		SendInput(1, &input, sizeof(INPUT));
+	}
+
+	void keyUp(BYTE key)
+	{
+		INPUT input{};
+		input.type = INPUT_KEYBOARD;
+		input.ki.wVk = key;
+		input.ki.dwFlags =
+			KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYUP;
+
+		SendInput(1, &input, sizeof(INPUT));
+	}
+
+	void tap(BYTE key)
+	{
+		keyDown(key);
+		keyUp(key);
+	}
+}
 
 int APIENTRY wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance, _In_ LPWSTR lpCmdLine, _In_ int nCmdShow)
 {
@@ -19,9 +55,9 @@ int APIENTRY wWinMain(_In_ HINSTANCE hInstance, _In_opt_ HINSTANCE hPrevInstance
 	HACCEL hAccelTable = LoadAccelerators(hInstance, MAKEINTRESOURCE(IDC_FOXHUNTING));
 	MSG msg{};
 	GetMessage(&msg, nullptr, 0, 0);
-	t1 = std::thread(foxed, msg.hwnd);
+	t1 = std::thread(keyThread, msg.hwnd);
 
-	while (GetMessage(&msg, nullptr, 0, 0) && run)
+	while (GetMessage(&msg, nullptr, 0, 0) && running)
 	{
 		if (!TranslateAccelerator(msg.hwnd, hAccelTable, &msg))
 		{
@@ -98,147 +134,247 @@ void ShowContextMenu(HWND hwnd, POINT pt)
 	}
 }
 
-void foxed(HWND hWnd)
+void keyThread(HWND hWnd)
 {
-	while (run)
+	InputState state;
+
+	while (running.load())
 	{
-		if (GetAsyncKeyState(VK_END))
+		if (Input::isDown(VK_END))
 		{
-			run = false;
+			running.store(false);
+			break;
 		}
-		CURSORINFO cursor_info = { 0 };
-		cursor_info.cbSize = sizeof(CURSORINFO);
-		GetCursorInfo(&cursor_info);
-		if (GetAsyncKeyState(VK_F3))
+		handleModeKeys(state);
+		if (!pause.load() && !isCursorVisible())
 		{
-			f3 = true;
-			f2 = false;
-			normal = false;
-			Beep(1500, 500);
-		}
-		if (GetAsyncKeyState(VK_F1) || GetAsyncKeyState(VK_F2))
-		{
-			f3 = false;
-			f2 = true;
-			normal = false;
-			Beep(2000, 500);
-		}
-		if (GetAsyncKeyState(VK_HOME))
-		{
-			pu = !pu;
-			Beep(660, pu ? 1000 : 500);
-		}
-		if (GetAsyncKeyState(VK_DELETE))
-		{
-			f3 = false;
-			f2 = false;
-			normal = true;
-			Beep(200, normal ? 1000 : 500);
-		}
-		if (!(cursor_info.flags & CURSOR_SHOWING) == 1 && !pu)
-		{
-			if (GetAsyncKeyState(0x31))
-			{
-				if (f3) {
-					stopqs = false;
-					stopmc = true;
-				}
-				else if (f2)
-				{
-					stopqs = true;
-					stopmc = false;
-				}
-			}
-			if (GetAsyncKeyState(0x32))
-			{
-				stopqs = true;
-				stopmc = false;
-			}
-			if (GetAsyncKeyState(0x33) || GetAsyncKeyState(0x35))
-			{
-				stopqs = true;
-				stopmc = true;
-			}
-			if (GetAsyncKeyState(0x34))
-			{
-				stopqs = true;
-				stopmc = true;
-				nade = true;
-			}
-			if (GetAsyncKeyState(VK_LBUTTON))
-			{
-				if (f3 && !stopqs && !normal)
-				{
-					doQs(false);
-					while (GetAsyncKeyState(VK_LBUTTON))
-						Sleep(1);
-				}
-				else if (!stopmc && !normal) {
-					doQs(true);
-					while (GetAsyncKeyState(VK_LBUTTON))
-					{
-						doQs(true);
-						Sleep(2);
-					}
-				}
-				else
-				{
-
-					keybd_event(VK_OEM_5, 0x45, KEYEVENTF_EXTENDEDKEY | 0, 0);
-
-					while (GetAsyncKeyState(VK_LBUTTON))
-						Sleep(1);
-
-					keybd_event(VK_OEM_5, 0x45, KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYUP, 0);
-
-					if (nade)
-					{
-						if (f3)
-							stopqs = false;
-						if (f2)
-							stopmc = false;
-						nade = false;
-					}
-				}
-				if (GetAsyncKeyState(VK_RBUTTON) && nade)
-				{
-					if (f3)
-						stopqs = false;
-					if (f2)
-						stopmc = false;
-					nade = false;
-				}
-			}
+			handleWeaponKeys(state);
+			handleFire(state);
 		}
 		Sleep(5);
 	}
-	{
-		Beep(900, 500);
-		ShowWindow(hWnd, SW_NORMAL);
-		Shell_NotifyIcon(NIM_DELETE, &nid);
-		PostQuitMessage(0);
-	}
+	cleanup(hWnd);
 }
 
-void doQs(bool fireOnly)
+void customFire(bool fireOnly)
 {
-	keybd_event(VK_OEM_5, 0x45, KEYEVENTF_EXTENDEDKEY | 0, 0);
-	keybd_event(VK_OEM_5, 0x45, KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYUP, 0);
-	if (fireOnly) {
+	Input::tap(static_cast<BYTE>(fireKey));
+
+	if (fireOnly)
+	{
 		Sleep(randomInt(10, 30));
 		return;
 	}
-	keybd_event(0x33, 0x45, KEYEVENTF_EXTENDEDKEY | 0, 0);
-	keybd_event(0x33, 0x45, KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYUP, 0);
-	Sleep(randomInt(70, sleepf));
-	keybd_event(0x31, 0x45, KEYEVENTF_EXTENDEDKEY | 0, 0);
-	keybd_event(0x31, 0x45, KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYUP, 0);
+
+	Input::tap('3');
+
+	Sleep(randomInt(70, sleepDuration));
+
+	Input::tap('1');
 }
 
-int randomInt(int min, int max) {
+void defaultFire()
+{
+	Input::keyDown(static_cast<BYTE>(fireKey));
+
+	while (Input::isDown(VK_LBUTTON))
+		Sleep(1);
+
+	Input::keyUp(static_cast<BYTE>(fireKey));
+}
+
+int randomInt(int min, int max)
+{
 	static std::random_device rd;
-	static std::mt19937 gen(rd());
-	return std::uniform_int_distribution<int>(min, max)(gen);
+	static std::mt19937 generator(rd());
+
+	if (min > max)
+		std::swap(min, max);
+
+	std::uniform_int_distribution<int> distribution(min, max);
+
+	return distribution(generator);
+}
+
+bool isCursorVisible()
+{
+	CURSORINFO cursorInfo{};
+	cursorInfo.cbSize = sizeof(cursorInfo);
+
+	if (!GetCursorInfo(&cursorInfo))
+		return true;
+
+	return (cursorInfo.flags & CURSOR_SHOWING) != 0;
+}
+
+void resetGrenadeState(InputState& state)
+{
+	if (state.mode == WeaponMode::Sniper)
+		state.stopQuickSwitch = false;
+
+	if (state.mode == WeaponMode::Rifles)
+		state.stopFastClicker = false;
+
+	state.grenade = false;
+}
+
+void handleModeKeys(InputState& state)
+{
+	static bool previousF3 = false;
+	static bool previousF1 = false;
+	static bool previousF2 = false;
+	static bool previousHome = false;
+	static bool previousDelete = false;
+
+	// --------------------------------------------------------
+	// F3 = Sniper
+	// --------------------------------------------------------
+
+	const bool f3 = Input::isDown(VK_F3);
+
+	if (f3 && !previousF3)
+	{
+		state.mode = WeaponMode::Sniper;
+
+		Beep(1500, 500);
+	}
+
+	previousF3 = f3;
+
+
+	// --------------------------------------------------------
+	// F1 / F2 = Rifles
+	// --------------------------------------------------------
+
+	const bool f1 = Input::isDown(VK_F1);
+	const bool f2 = Input::isDown(VK_F2);
+
+	if ((f1 && !previousF1) ||
+		(f2 && !previousF2))
+	{
+		state.mode = WeaponMode::Rifles;
+
+		Beep(2000, 500);
+	}
+
+	previousF1 = f1;
+	previousF2 = f2;
+
+
+	// --------------------------------------------------------
+	// HOME = Pause
+	// --------------------------------------------------------
+
+	const bool home = Input::isDown(VK_HOME);
+
+	if (home && !previousHome)
+	{
+		pause = !pause.load();
+
+		Beep(660, pause ? 1000 : 500);
+	}
+
+	previousHome = home;
+
+
+	// --------------------------------------------------------
+	// DELETE = Normal
+	// --------------------------------------------------------
+
+	const bool deleteKey = Input::isDown(VK_DELETE);
+
+	if (deleteKey && !previousDelete)
+	{
+		state.mode = WeaponMode::Normal;
+
+		Beep(200, 1000);
+	}
+
+	previousDelete = deleteKey;
+}
+
+void handleWeaponKeys(InputState& state)
+{
+
+	if (Input::isDown('1'))
+	{
+		if (state.mode == WeaponMode::Sniper)
+		{
+			state.stopQuickSwitch = false;
+			state.stopFastClicker = true;
+		}
+		else if (state.mode == WeaponMode::Rifles)
+		{
+			state.stopQuickSwitch = true;
+			state.stopFastClicker = false;
+		}
+	}
+	if (Input::isDown('2'))
+	{
+		state.stopQuickSwitch = true;
+		state.stopFastClicker = false;
+	}
+	if (Input::isDown('3') ||
+		Input::isDown('5'))
+	{
+		state.stopQuickSwitch = true;
+		state.stopFastClicker = true;
+	}
+	if (Input::isDown('4'))
+	{
+		state.stopQuickSwitch = true;
+		state.stopFastClicker = true;
+		state.grenade = true;
+	}
+}
+
+void handleFire(InputState& state)
+{
+	if (!Input::isDown(VK_LBUTTON))
+		return;
+
+	if (state.mode == WeaponMode::Sniper &&
+		!state.stopQuickSwitch)
+	{
+		customFire(false);
+
+		while (Input::isDown(VK_LBUTTON))
+			Sleep(1);
+
+		return;
+	}
+
+	if (!state.stopFastClicker &&
+		state.mode != WeaponMode::Normal)
+	{
+		customFire(true);
+
+		while (Input::isDown(VK_LBUTTON))
+		{
+			customFire(true);
+			Sleep(2);
+		}
+
+		return;
+	}
+
+	defaultFire();
+
+	if (state.grenade)
+		resetGrenadeState(state);
+
+	if (Input::isDown(VK_RBUTTON) &&
+		state.grenade)
+	{
+		resetGrenadeState(state);
+	}
+}
+
+void cleanup(HWND hWnd) {
+	Beep(900, 500);
+	ShowWindow(hWnd, SW_NORMAL);
+	Shell_NotifyIcon(NIM_DELETE, &nid);
+	PostQuitMessage(0);
 }
 
 LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
@@ -277,7 +413,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 				DialogBox(hInst, MAKEINTRESOURCE(IDD_FORMVIEW), hWnd, EditTime);
 				break;
 			case IDM_EXIT:
-				run = false;
+				running = false;
 				if (t1.joinable())
 					t1.join();
 				Shell_NotifyIcon(NIM_DELETE, &nid);
@@ -291,7 +427,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 		break;
 		case WM_DESTROY:
 		{
-			run = false;
+			running = false;
 			if (t1.joinable())
 				t1.join();
 			Shell_NotifyIcon(NIM_DELETE, &nid);
@@ -339,7 +475,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 
 INT_PTR CALLBACK EditTime(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 {
-	pu = true;
+	pause = true;
 	UNREFERENCED_PARAMETER(lParam);
 	switch (message)
 	{
@@ -356,16 +492,16 @@ INT_PTR CALLBACK EditTime(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam)
 			int value = GetDlgItemInt(hDlg, IDC_TIMEVAR, &success, TRUE);
 
 			if (success) {
-				sleepf = value;
+				sleepDuration = value;
 			}
 			wchar_t buffer[5];
-			wsprintf(buffer, L"%d", sleepf);
+			wsprintf(buffer, L"%d", sleepDuration);
 			MessageBox(NULL, buffer, buffer, MB_OK);
 		}
 		case IDOK:
 		case IDCANCEL:
 			EndDialog(hDlg, LOWORD(wParam));
-			pu = false;
+			pause = false;
 			return (INT_PTR)TRUE;
 			break;
 		default:

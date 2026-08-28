@@ -18,14 +18,37 @@
 
 #include "resource.h"
 
+enum class WeaponMode
+{
+    Normal,
+    Rifles,
+    Sniper
+};
+
+struct InputState
+{
+    WeaponMode mode = WeaponMode::Normal;
+
+    bool grenade = false;
+    bool stopQuickSwitch = true;
+    bool stopFastClicker = true;
+};
+
 ATOM                MyRegisterClass(HINSTANCE hInstance);
 BOOL                InitInstance(HINSTANCE, int);
 LRESULT CALLBACK    WndProc(HWND, UINT, WPARAM, LPARAM);
 INT_PTR CALLBACK	EditTime(HWND hDlg, UINT message, WPARAM wParam, LPARAM lParam);
 void                ShowContextMenu(HWND hwnd, POINT pt);
-void				foxed(HWND hWnd);
-void				doQs(bool fire);
+void				keyThread(HWND hWnd);
+void				customFire(bool fire);
+void				defaultFire();
 int					randomInt(int min, int max);
+bool                isCursorVisible();
+void                resetGrenadeState(InputState& state);
+void                handleModeKeys(InputState& state);
+void                handleWeaponKeys(InputState& state);
+void                handleFire(InputState& state);
+void                cleanup(HWND hWnd);
 
 HINSTANCE hInst;
 std::thread t1;
@@ -36,5 +59,9 @@ UINT const WMAPP_NOTIFYCALLBACK = WM_APP + 1;
 
 NOTIFYICONDATA nid = { sizeof(nid) };
 
-bool stopqs = true, stopmc = true, f3 = false, f2 = false, nade = false, pu = false, run = true, normal = true;
-int sleepf = 150;
+std::atomic_bool running{ true };
+std::atomic_bool pause{ false };
+
+
+extern int fireKey = VK_XBUTTON1;
+extern int sleepDuration = 150;
